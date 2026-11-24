@@ -1,26 +1,60 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f3eee4;
+  --paper-2: #fffdf8;
+  --ink: #221e1a;
+  --muted: #74695d;
+  --line: #e3d7c6;
+  --accent: #be4b2c;
+  --pine: #1f4f45;
+  --holiday: #f6e1d8;
+  --soft: #efe6d6;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-pine: var(--pine);
+  --color-holiday: var(--holiday);
+  --color-soft: var(--soft);
+  --font-sans: var(--font-outfit);
+  --font-display: var(--font-fraunces);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(1100px 420px at 0% -10%, rgba(190, 75, 44, 0.08), transparent 55%),
+    radial-gradient(900px 380px at 100% 0%, rgba(31, 79, 69, 0.08), transparent 50%),
+    var(--paper);
+  color: var(--ink);
+  font-family: var(--font-outfit), sans-serif;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--pine);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: #f0c7b8;
+  color: var(--ink);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+  }
 }
