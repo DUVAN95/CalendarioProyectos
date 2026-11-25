@@ -1,8 +1,8 @@
 import { Workbook } from 'exceljs'
-import { crearPlantilla, leerExcel } from '../lib/excel'
+import { aplicarOrigen, crearPlantilla, exportarTareas, leerExcel } from '../lib/excel'
 import { aIso, desdeIso } from '../lib/fechas'
 import { domingoDePascuaIso, festivoEn } from '../lib/festivos'
-import { capacidadDelDia, programar, reubicarTarea, type Cronograma } from '../lib/jornada'
+import { capacidadDelDia, insertarTareaEnDia, programar, reubicarTarea, type Cronograma } from '../lib/jornada'
 
 function afirmar(condicion: unknown, mensaje: string): asserts condicion {
   if (!condicion) throw new Error(mensaje)
@@ -105,6 +105,33 @@ if (plantilla.ok) {
   afirmar(plantilla.tareas[1]?.horas === 10, 'La segunda tarea de la plantilla dura 10 h')
 }
 
+const clasificadas = aplicarOrigen(
+  [
+    { nombre: 'A', horas: 1, notas: '' },
+    { nombre: 'A', horas: 1, notas: '', manual: true },
+    { nombre: 'B', horas: 2, notas: 'extra' },
+  ],
+  [{ nombre: 'A', horas: 1, notas: '' }],
+)
+afirmar(clasificadas[0]?.manual === false && clasificadas[1]?.manual === true && clasificadas[2]?.manual === true, 'Separa la tarea del Excel de las añadidas a mano')
+
+const exportado = new Workbook()
+await exportado.xlsx.load(await exportarTareas([
+  { nombre: 'Lista', horas: 2, notas: '', finalizada: true, manual: false },
+  { nombre: 'Pendiente', horas: 1.5, notas: 'nota', manual: true },
+]))
+const hojaExportada = exportado.getWorksheet('Tareas')
+const estadoHecha = hojaExportada?.getRow(3).getCell(3)
+const estadoPendiente = hojaExportada?.getRow(8).getCell(3)
+const relleno = (celda: typeof estadoHecha) => (celda?.fill && celda.fill.type === 'pattern' ? celda.fill.fgColor?.argb : '')
+afirmar(hojaExportada?.getRow(1).getCell(1).value === 'Tareas cargadas por el Excel', 'La primera tabla son las tareas del Excel')
+afirmar(hojaExportada?.getRow(2).getCell(3).value === 'Estado' && hojaExportada?.getRow(2).getCell(4).value === 'Notas', 'Cada tabla trae Estado y deja Notas al final')
+afirmar(estadoHecha?.value === 'completadas' && relleno(estadoHecha) === 'FF22C55E', 'La tarea finalizada dice completadas en verde')
+afirmar(hojaExportada?.getRow(4).getCell(1).value === 'Total' && hojaExportada?.getRow(4).getCell(2).value === 2, 'La tabla del Excel cierra con el total de horas')
+afirmar(hojaExportada?.getRow(6).getCell(1).value === 'Tareas añadidas manualmente', 'La segunda tabla son las tareas manuales')
+afirmar(estadoPendiente?.value === 'por completar' && relleno(estadoPendiente) === 'FFFFFFFF', 'La tarea pendiente dice por completar en blanco')
+afirmar(hojaExportada?.getRow(9).getCell(1).value === 'Total' && hojaExportada?.getRow(9).getCell(2).value === 1.5, 'La tabla manual cierra con el total de horas')
+
 const conComa = new Workbook()
 const hojaComa = conComa.addWorksheet('Datos')
 hojaComa.addRow(['Tarea', 'Horas estimadas', 'Notas'])
@@ -156,6 +183,32 @@ afirmar(!masTemprano.tareas[0]?.noAntesDe, 'Mover a un día anterior quita el an
 exigir(masTemprano, 0, '2026-03-02', 8, 0, 8)
 exigir(masTemprano, 1, '2026-03-03', 8, 0, 8)
 afirmar(masTemprano.tareas[0]?.nombre === 'B', 'La tarea soltada al inicio del lunes queda primera')
+
+const conContinuacion = programar('2026-03-02', [
+  { nombre: 'A', horas: 10 },
+  { nombre: 'B', horas: 6 },
+])
+const debajo = programar(
+  '2026-03-02',
+  insertarTareaEnDia(conContinuacion, { nombre: 'Nueva', horas: 2, notas: '' }, '2026-03-03'),
+)
+afirmar(debajo.tareas.map((tarea) => tarea.nombre).join(',') === 'A,Nueva,B', 'La tarea nueva queda debajo de la que viene del día anterior')
+exigir(debajo, 0, '2026-03-03', 2, 0, 8)
+exigir(debajo, 1, '2026-03-03', 2, 2, 8)
+exigir(debajo, 2, '2026-03-03', 4, 4, 8)
+afirmar(debajo.tareas[1]?.noAntesDe === '2026-03-03', 'La tarea creada en un día no empieza antes')
+
+const sinContinuacion = programar('2026-03-02', [
+  { nombre: 'A', horas: 8 },
+  { nombre: 'B', horas: 8 },
+])
+const alInicio = programar(
+  '2026-03-02',
+  insertarTareaEnDia(sinContinuacion, { nombre: 'Nueva', horas: 2, notas: '' }, '2026-03-03'),
+)
+afirmar(alInicio.tareas.map((tarea) => tarea.nombre).join(',') === 'A,Nueva,B', 'Sin continuación, la tarea nueva abre el día')
+exigir(alInicio, 1, '2026-03-03', 2, 0, 8)
+exigir(alInicio, 2, '2026-03-03', 6, 2, 8)
 
 const santaMovida = programar('2026-03-30', reubicarTarea(semanaSanta, 1, '2026-04-02', 0))
 exigir(santaMovida, 0, '2026-04-06', 8, 0, 8)

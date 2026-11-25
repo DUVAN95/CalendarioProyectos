@@ -9,6 +9,7 @@ export type TareaExcel = {
   noAntesDe?: string
   color?: string
   finalizada?: boolean
+  manual?: boolean
 }
 
 export type ResultadoExcel =
@@ -49,7 +50,7 @@ function leerValor(valor: CellValue): string | number | null {
 }
 
 export function validarTareasManuales(
-  filas: { nombre: string; horas: string; notas: string; noAntesDe?: string; color?: string; finalizada?: string }[],
+  filas: { nombre: string; horas: string; notas: string; noAntesDe?: string; color?: string; finalizada?: string; manual?: string }[],
 ): { ok: true; tareas: TareaExcel[] } | { ok: false; error: string } {
   if (filas.length === 0) {
     return { ok: false, error: 'La actividad necesita al menos una tarea.' }
@@ -98,6 +99,7 @@ export function validarTareasManuales(
       ...(esIso(ancla) ? { noAntesDe: ancla } : {}),
       ...(esColorDeTarea(color) ? { color } : {}),
       ...(fila.finalizada === '1' ? { finalizada: true } : {}),
+      ...(fila.manual === '1' ? { manual: true } : fila.manual === '0' ? { manual: false } : {}),
     })
   })
 
@@ -246,6 +248,85 @@ export async function leerExcel(contenido: Buffer): Promise<ResultadoExcel> {
   }
 
   return { ok: true, tareas, hoja: hoja.name }
+}
+
+const VERDE_COMPLETADA = 'FF22C55E'
+const BLANCO = 'FFFFFFFF'
+
+function firmaOrigen(tarea: { nombre: string; horas: number; notas: string }): string {
+  return `${tarea.nombre}\0${Math.round(tarea.horas * 60)}\0${tarea.notas ?? ''}`
+}
+
+export function aplicarOrigen(actuales: TareaExcel[], originales: TareaExcel[]): TareaExcel[] {
+  const disponibles = new Map<string, number>()
+  for (const tarea of originales) {
+    const clave = firmaOrigen(tarea)
+    disponibles.set(clave, (disponibles.get(clave) ?? 0) + 1)
+  }
+
+  for (const tarea of actuales) {
+    if (tarea.manual !== false) continue
+    const clave = firmaOrigen(tarea)
+    const quedan = disponibles.get(clave) ?? 0
+    if (quedan > 0) disponibles.set(clave, quedan - 1)
+  }
+
+  return actuales.map((tarea) => {
+    if (tarea.manual === true) return { ...tarea, manual: true }
+    if (tarea.manual === false) return { ...tarea, manual: false }
+    const clave = firmaOrigen(tarea)
+    const quedan = disponibles.get(clave) ?? 0
+    if (quedan > 0) {
+      disponibles.set(clave, quedan - 1)
+      return { ...tarea, manual: false }
+    }
+    return { ...tarea, manual: true }
+  })
+}
+
+function escribirSeccion(hoja: Workbook['worksheets'][number], titulo: string, tareas: TareaExcel[]) {
+  const tituloFila = hoja.addRow([titulo])
+  tituloFila.font = { bold: true, size: 14 }
+  const encabezado = hoja.addRow(['Tarea', 'Horas estimadas', 'Estado', 'Notas'])
+  encabezado.font = { bold: true }
+
+  for (const tarea of tareas) {
+    const completada = Boolean(tarea.finalizada)
+    const fila = hoja.addRow([tarea.nombre, tarea.horas, completada ? 'completadas' : 'por completar', tarea.notas])
+    fila.getCell(3).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: completada ? VERDE_COMPLETADA : BLANCO },
+    }
+  }
+
+  const minutos = tareas.reduce((total, tarea) => total + Math.round(tarea.horas * 60), 0)
+  const total = hoja.addRow(['Total', minutos / 60])
+  total.font = { bold: true }
+  hoja.addRow([])
+}
+
+export async function exportarTareas(tareas: TareaExcel[]): Promise<Buffer> {
+  const libro = new Workbook()
+  const hoja = libro.addWorksheet('Tareas')
+  hoja.getColumn(1).width = 48
+  hoja.getColumn(2).width = 20
+  hoja.getColumn(3).width = 18
+  hoja.getColumn(4).width = 36
+
+  escribirSeccion(
+    hoja,
+    'Tareas cargadas Originalmente',
+    tareas.filter((tarea) => tarea.manual !== true),
+  )
+  escribirSeccion(
+    hoja,
+    'Tareas añadidas',
+    tareas.filter((tarea) => tarea.manual === true),
+  )
+
+  const datos = await libro.xlsx.writeBuffer()
+  return Buffer.from(datos)
 }
 
 export async function crearPlantilla(): Promise<Buffer> {

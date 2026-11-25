@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { refresh, revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { esErrorDeConexion, mensajeMongo } from '@/lib/db'
 import {
@@ -12,8 +12,9 @@ import {
   eliminarProyecto as borrarProyecto,
   guardarTareas,
   obtenerActividad,
+  obtenerArchivo,
 } from '@/lib/datos'
-import { leerExcel, validarTareasManuales, type TareaExcel } from '@/lib/excel'
+import { aplicarOrigen, leerExcel, validarTareasManuales, type TareaExcel } from '@/lib/excel'
 import { esIso, desdeIso } from '@/lib/fechas'
 import { esColorDeTarea } from '@/lib/jornada'
 
@@ -76,6 +77,17 @@ async function leerArchivoNuevo(archivo: FormDataEntryValue | null): Promise<Arc
   if (!leido.ok) return { error: leido.error }
 
   return { tareas: leido.tareas, hoja: leido.hoja, contenido, nombre: archivo.name, tipo: archivo.type }
+}
+
+async function completarOrigen(proyectoId: string, actividadId: string, tareas: TareaExcel[]): Promise<TareaExcel[]> {
+  if (tareas.every((tarea) => typeof tarea.manual === 'boolean')) return tareas
+  const archivo = await obtenerArchivo(proyectoId, actividadId)
+  let originales: TareaExcel[] = []
+  if (archivo) {
+    const leido = await leerExcel(archivo.datos)
+    if (leido.ok) originales = leido.tareas
+  }
+  return aplicarOrigen(tareas, originales)
 }
 
 export async function editarProyecto(
@@ -202,6 +214,7 @@ export async function editarActividad(
           noAntesDe: String(formData.getAll('tareaNoAntesDe')[indice] ?? ''),
           color: String(formData.getAll('tareaColor')[indice] ?? ''),
           finalizada: String(formData.getAll('tareaFinalizada')[indice] ?? ''),
+          manual: String(formData.getAll('tareaManual')[indice] ?? ''),
         })),
       )
 
@@ -213,7 +226,7 @@ export async function editarActividad(
       actividadId,
       nombre,
       fechaInicio,
-      tareas: manuales.tareas,
+      tareas: archivo ? manuales.tareas.map((tarea) => ({ ...tarea, manual: false })) : await completarOrigen(proyectoId, actividadId, manuales.tareas),
       archivo: archivo
         ? { nombre: archivo.nombre, tipo: archivo.tipo, datos: archivo.contenido, hoja: archivo.hoja }
         : undefined,
@@ -226,7 +239,40 @@ export async function editarActividad(
 
   revalidatePath(`/proyectos/${proyectoId}`)
   revalidatePath(`/proyectos/${proyectoId}/actividades/${actividadId}`)
+  refresh()
   redirect(`/proyectos/${proyectoId}/actividades/${actividadId}`)
+}
+
+export async function reemplazarTareas(
+  proyectoId: string,
+  actividadId: string,
+  tareas: TareaExcel[],
+): Promise<{ error: string } | null> {
+  const manuales = validarTareasManuales(
+    tareas.map((tarea) => ({
+      nombre: tarea.nombre,
+      horas: String(tarea.horas),
+      notas: tarea.notas ?? '',
+      noAntesDe: tarea.noAntesDe ?? '',
+      color: tarea.color ?? '',
+      finalizada: tarea.finalizada ? '1' : '',
+      manual: tarea.manual === true ? '1' : tarea.manual === false ? '0' : '',
+    })),
+  )
+  if (!manuales.ok) return { error: manuales.error }
+
+  try {
+    const actualizada = await guardarTareas(proyectoId, actividadId, await completarOrigen(proyectoId, actividadId, manuales.tareas))
+    if (!actualizada) return { error: 'No encontré la actividad.' }
+  } catch (error) {
+    console.error(error)
+    return { error: esErrorDeConexion(error) ? mensajeMongo() : 'No se pudo guardar la tarea.' }
+  }
+
+  revalidatePath(`/proyectos/${proyectoId}`)
+  revalidatePath(`/proyectos/${proyectoId}/actividades/${actividadId}`)
+  refresh()
+  return null
 }
 
 function firmaTarea(tarea: TareaExcel): string {
@@ -250,6 +296,7 @@ export async function guardarOrdenTareas(
       ...(anclaValida ? { noAntesDe: ancla } : {}),
       ...(esColorDeTarea(color) ? { color } : {}),
       ...(tarea.finalizada ? { finalizada: true } : {}),
+      ...(tarea.manual === true ? { manual: true } : tarea.manual === false ? { manual: false } : {}),
     }
   })
 
@@ -262,7 +309,7 @@ export async function guardarOrdenTareas(
     const mismas = guardadas.length === recibidas.length && guardadas.every((firma, indice) => firma === recibidas[indice])
     if (!mismas) return { error: 'Las tareas cambiaron. Recarga la página antes de moverlas.' }
 
-    const actualizada = await guardarTareas(proyectoId, actividadId, limpias)
+    const actualizada = await guardarTareas(proyectoId, actividadId, await completarOrigen(proyectoId, actividadId, limpias))
     if (!actualizada) return { error: 'No encontré la actividad.' }
   } catch (error) {
     console.error(error)
@@ -271,6 +318,7 @@ export async function guardarOrdenTareas(
 
   revalidatePath(`/proyectos/${proyectoId}`)
   revalidatePath(`/proyectos/${proyectoId}/actividades/${actividadId}`)
+  refresh()
   return null
 }
 

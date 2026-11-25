@@ -1,7 +1,7 @@
 import { Binary, ObjectId, type Collection } from 'mongodb'
 import { etiquetaCreacion } from '@/lib/fechas'
 import { getDb } from '@/lib/db'
-import type { TareaExcel } from '@/lib/excel'
+import { aplicarOrigen, leerExcel, type TareaExcel } from '@/lib/excel'
 import { programar } from '@/lib/jornada'
 
 type ProyectoDoc = {
@@ -199,6 +199,20 @@ export async function obtenerActividad(proyectoId: string, actividadId: string):
   )
   if (!documento) return null
 
+  let tareas = documento.tareas
+  if (tareas.some((tarea) => typeof tarea.manual !== 'boolean')) {
+    const conArchivo = await actividades.findOne(
+      { _id: actividad, proyectoId: proyecto },
+      { projection: { 'archivo.datos': 1 } },
+    )
+    let originales: TareaExcel[] = []
+    if (conArchivo?.archivo.datos) {
+      const leido = await leerExcel(Buffer.from(conArchivo.archivo.datos.value()))
+      if (leido.ok) originales = leido.tareas
+    }
+    tareas = aplicarOrigen(tareas, originales)
+  }
+
   return {
     id: documento._id.toHexString(),
     proyectoId: documento.proyectoId.toHexString(),
@@ -206,7 +220,7 @@ export async function obtenerActividad(proyectoId: string, actividadId: string):
     fechaInicio: documento.fechaInicio,
     hoja: documento.hoja,
     archivoNombre: documento.archivo.nombre,
-    tareas: documento.tareas,
+    tareas,
     creadoEnTexto: etiquetaCreacion(documento.creadoEn),
   }
 }

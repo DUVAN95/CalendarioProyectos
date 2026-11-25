@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react'
 import { editarActividad } from '@/lib/acciones'
 import { btn, btnSecundario, campo } from '@/components/estilos'
+import { ModalTarea } from '@/components/ModalTarea'
 import type { TareaExcel } from '@/lib/excel'
 
 type Fila = {
@@ -13,6 +14,8 @@ type Fila = {
   noAntesDe: string
   color: string
   finalizada: string
+  manual: string
+  creadaEn: number
 }
 
 function horasVisibles(horas: number): string {
@@ -37,6 +40,7 @@ export function FormularioEditarActividad({
 }) {
   const [estado, accion, pending] = useActionState(editarActividad, null)
   const [archivo, setArchivo] = useState<string | null>(null)
+  const [creando, setCreando] = useState(false)
   const [tareas, setTareas] = useState<Fila[]>(() =>
     tareasIniciales.map((tarea, indice) => ({
       clave: `${indice}-${tarea.nombre}`,
@@ -46,10 +50,15 @@ export function FormularioEditarActividad({
       noAntesDe: tarea.noAntesDe ?? '',
       color: tarea.color ?? '',
       finalizada: tarea.finalizada ? '1' : '',
+      manual: tarea.manual === true ? '1' : tarea.manual === false ? '0' : '',
+      creadaEn: indice,
     })),
   )
+  const visibles = tareas
+    .map((tarea, indice) => ({ tarea, indice }))
+    .sort((a, b) => b.tarea.creadaEn - a.tarea.creadaEn || b.indice - a.indice)
 
-  function cambiar(clave: string, campoFila: keyof Omit<Fila, 'clave'>, valor: string) {
+  function cambiar(clave: string, campoFila: 'nombre' | 'horas' | 'notas', valor: string) {
     setTareas((actuales) => actuales.map((tarea) => (tarea.clave === clave ? { ...tarea, [campoFila]: valor } : tarea)))
   }
 
@@ -64,6 +73,7 @@ export function FormularioEditarActividad({
   }
 
   return (
+    <>
     <form className="space-y-6" action={accion}>
       <input type="hidden" name="proyectoId" value={proyectoId} />
       <input type="hidden" name="actividadId" value={actividadId} />
@@ -79,28 +89,34 @@ export function FormularioEditarActividad({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="font-display text-2xl">Tareas</h2>
-          <button
-            type="button"
-            className={btnSecundario}
-            onClick={() =>
-              setTareas((actuales) => [
-                ...actuales,
-                { clave: `nueva-${actuales.length}-${Date.now()}`, nombre: '', horas: '', notas: '', noAntesDe: '', color: '', finalizada: '' },
-              ])
-            }
-          >
+          <div>
+            <h2 className="font-display text-2xl">Tareas</h2>
+            <p className="text-sm text-muted">Las más recientes aparecen primero. El puesto es el orden en el calendario.</p>
+          </div>
+          <button type="button" className={btnSecundario} onClick={() => setCreando(true)}>
             Agregar tarea
           </button>
         </div>
+        <div className="hidden" aria-hidden>
+          {tareas.map((tarea) => (
+            <div key={tarea.clave}>
+              <input type="hidden" name="tareaNombre" value={tarea.nombre} />
+              <input type="hidden" name="tareaHoras" value={tarea.horas} />
+              <input type="hidden" name="tareaNotas" value={tarea.notas} />
+              <input type="hidden" name="tareaNoAntesDe" value={tarea.noAntesDe} />
+              <input type="hidden" name="tareaColor" value={tarea.color} />
+              <input type="hidden" name="tareaFinalizada" value={tarea.finalizada} />
+              <input type="hidden" name="tareaManual" value={tarea.manual} />
+            </div>
+          ))}
+        </div>
         <ul className="space-y-3">
-          {tareas.map((tarea, indice) => (
+          {visibles.map(({ tarea, indice }) => (
             <li key={tarea.clave} className="rounded-2xl border border-line bg-soft/40 p-4">
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_8rem]">
                 <label className="block space-y-1">
-                  <span className="text-xs text-muted">Tarea {indice + 1}</span>
+                  <span className="text-xs text-muted">Puesto {indice + 1} en el calendario</span>
                   <input
-                    name="tareaNombre"
                     value={tarea.nombre}
                     onChange={(event) => cambiar(tarea.clave, 'nombre', event.target.value)}
                     className={campo}
@@ -109,7 +125,6 @@ export function FormularioEditarActividad({
                 <label className="block space-y-1">
                   <span className="text-xs text-muted">Horas</span>
                   <input
-                    name="tareaHoras"
                     inputMode="decimal"
                     value={tarea.horas}
                     onChange={(event) => cambiar(tarea.clave, 'horas', event.target.value)}
@@ -117,13 +132,9 @@ export function FormularioEditarActividad({
                   />
                 </label>
               </div>
-              <input type="hidden" name="tareaNoAntesDe" value={tarea.noAntesDe} />
-              <input type="hidden" name="tareaColor" value={tarea.color} />
-              <input type="hidden" name="tareaFinalizada" value={tarea.finalizada} />
               <label className="mt-3 block space-y-1">
                 <span className="text-xs text-muted">Notas</span>
                 <input
-                  name="tareaNotas"
                   value={tarea.notas}
                   onChange={(event) => cambiar(tarea.clave, 'notas', event.target.value)}
                   className={campo}
@@ -131,7 +142,7 @@ export function FormularioEditarActividad({
               </label>
               <div className="mt-3 flex flex-wrap gap-3 text-sm">
                 <button type="button" className="text-pine hover:underline" onClick={() => mover(indice, indice - 1)} disabled={indice === 0}>
-                  Subir
+                  Adelantar
                 </button>
                 <button
                   type="button"
@@ -139,7 +150,7 @@ export function FormularioEditarActividad({
                   onClick={() => mover(indice, indice + 1)}
                   disabled={indice === tareas.length - 1}
                 >
-                  Bajar
+                  Atrasar
                 </button>
                 <button
                   type="button"
@@ -173,5 +184,32 @@ export function FormularioEditarActividad({
         {pending ? 'Guardando…' : 'Guardar actividad'}
       </button>
     </form>
+    {creando ? (
+      <ModalTarea
+        titulo="Nueva tarea"
+        detalle="Aparece primera en esta lista. En el calendario queda al final, hasta que la adelantes."
+        inicial={{ nombre: '', horas: '', notas: '' }}
+        confirmarTexto="Crear tarea"
+        onCerrar={() => setCreando(false)}
+        onGuardar={(tarea) => {
+          setTareas((actuales) => [
+            ...actuales,
+            {
+              clave: `nueva-${Date.now()}-${actuales.length}`,
+              nombre: tarea.nombre,
+              horas: horasVisibles(tarea.horas),
+              notas: tarea.notas,
+              noAntesDe: '',
+              color: '',
+              finalizada: '',
+              manual: '1',
+              creadaEn: Date.now(),
+            },
+          ])
+          setCreando(false)
+        }}
+      />
+    ) : null}
+    </>
   )
 }

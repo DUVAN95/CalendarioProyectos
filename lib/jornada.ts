@@ -28,6 +28,7 @@ export type TareaEntrada = {
   noAntesDe?: string
   color?: string
   finalizada?: boolean
+  manual?: boolean
 }
 
 export function colorMostrado(tarea: { color: string; finalizada?: boolean }): string {
@@ -56,6 +57,7 @@ export type TareaProgramada = {
   color: string
   noAntesDe?: string
   finalizada?: boolean
+  manual?: boolean
   segmentos: Segmento[]
 }
 
@@ -184,6 +186,7 @@ export function programar(fechaSolicitada: string, tareasEntrada: TareaEntrada[]
       noAntesDe: anclaAceptada(tarea.noAntesDe),
       color: esColorDeTarea(tarea.color) ? tarea.color.toLowerCase() : undefined,
       finalizada: Boolean(tarea.finalizada),
+      manual: tarea.manual,
       segmentos: [] as Segmento[],
     }
   })
@@ -293,6 +296,7 @@ export function programar(fechaSolicitada: string, tareasEntrada: TareaEntrada[]
       color,
       noAntesDe: tarea.noAntesDe,
       ...(tarea.finalizada ? { finalizada: true } : {}),
+      ...(tarea.manual === true ? { manual: true } : tarea.manual === false ? { manual: false } : {}),
       segmentos: tarea.segmentos,
     }
   })
@@ -363,6 +367,7 @@ export function tareasDelCronograma(cronograma: Cronograma): TareaEntrada[] {
     color: tarea.color,
     ...(tarea.finalizada ? { finalizada: true } : {}),
     ...(tarea.noAntesDe ? { noAntesDe: tarea.noAntesDe } : {}),
+    ...(tarea.manual === true ? { manual: true } : tarea.manual === false ? { manual: false } : {}),
   }))
 }
 
@@ -406,5 +411,39 @@ export function reubicarTarea(
 
   const copia = [...resto]
   copia.splice(Math.max(0, Math.min(insertAt, copia.length)), 0, movida)
+  return copia
+}
+
+export function insertarTareaEnDia(cronograma: Cronograma, tarea: TareaEntrada, fechaDestino: string): TareaEntrada[] {
+  const actuales = tareasDelCronograma(cronograma)
+  if (!esIso(fechaDestino)) return actuales
+
+  const enDia = cronograma.tareas.filter((item) => item.segmentos.some((segmento) => segmento.fecha === fechaDestino))
+  const continuaciones = enDia.filter((item) => (item.segmentos[0]?.fecha ?? fechaDestino) < fechaDestino)
+
+  let insertAt = actuales.length
+  if (continuaciones.length > 0) {
+    const ultima = continuaciones[continuaciones.length - 1]
+    insertAt = cronograma.tareas.findIndex((item) => item.indice === ultima.indice) + 1
+  } else if (enDia.length > 0) {
+    insertAt = cronograma.tareas.findIndex((item) => item.indice === enDia[0].indice)
+  } else {
+    insertAt = 0
+    cronograma.tareas.forEach((item, indice) => {
+      const fin = item.segmentos.at(-1)?.fecha ?? ''
+      if (fin < fechaDestino) insertAt = indice + 1
+    })
+  }
+
+  const nueva: TareaEntrada = {
+    nombre: tarea.nombre,
+    horas: tarea.horas,
+    notas: tarea.notas?.trim() ?? '',
+    manual: true,
+  }
+  if (fechaDestino >= cronograma.fechaInicio) nueva.noAntesDe = fechaDestino
+
+  const copia = [...actuales]
+  copia.splice(Math.max(0, Math.min(insertAt, copia.length)), 0, nueva)
   return copia
 }

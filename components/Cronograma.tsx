@@ -83,12 +83,16 @@ export function Cronograma({
   guardando = false,
   onMover,
   onFinalizar,
+  onAgregar,
+  onEditar,
 }: {
   cronograma: DatosCronograma
   hoy: string
   guardando?: boolean
   onMover?: (indice: number, fecha: string, posicion: number) => void
   onFinalizar?: (indice: number) => void
+  onAgregar?: (fecha: string) => void
+  onEditar?: (indice: number) => void
 }) {
   const [vista, setVista] = useState<'barras' | 'dias'>('dias')
   const [arrastre, setArrastre] = useState<{ indice: number; fecha: string; posicion: number } | null>(null)
@@ -156,9 +160,9 @@ export function Cronograma({
         <p className="text-sm text-muted">
           {vista === 'barras'
             ? 'Desplaza hacia los lados para ver las semanas.'
-            : guardando
+              : guardando
               ? 'Guardando el nuevo orden…'
-              : 'Arrastra una tarea para moverla de día o cambiar su orden. Las horas se reparten de nuevo según la jornada.'}
+              : 'Arrastra una tarea para moverla de día o cambiar su orden. Doble clic para editarla. Las horas se reparten de nuevo según la jornada.'}
         </p>
       </div>
 
@@ -186,7 +190,10 @@ export function Cronograma({
 
             {cronograma.tareas.map((tarea) => (
               <div key={tarea.indice} className="flex border-t border-line">
-                <div className="sticky left-0 z-10 w-72 shrink-0 border-r border-line bg-paper-2 px-4 py-3">
+                <div
+                  className="sticky left-0 z-10 w-72 shrink-0 border-r border-line bg-paper-2 px-4 py-3"
+                  onDoubleClick={() => onEditar?.(tarea.indice)}
+                >
                   <p className="flex items-start gap-2 font-medium leading-5">
                     <span className="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorMostrado(tarea) }} />
                     <span>{tarea.nombre}</span>
@@ -239,7 +246,7 @@ export function Cronograma({
                         onDrop={alSoltar}
                       >
                         <EncabezadoDia dia={dia} hoy={hoy} className="w-full" />
-                        <ul className={`min-h-16 space-y-2 px-2 pb-3 ${arrastre ? 'cursor-grabbing' : ''}`}>
+                        <ul className={`min-h-16 space-y-2 px-2 ${arrastre ? 'cursor-grabbing' : ''}`}>
                           {piezas.map(({ tarea, segmento }) => {
                             const esArrastrada = arrastre?.indice === tarea.indice
                             const esUltimoDia = tarea.segmentos.at(-1)?.fecha === segmento.fecha
@@ -253,6 +260,11 @@ export function Cronograma({
                                   draggable={Boolean(onMover) && !guardando}
                                   className={`rounded-xl px-2.5 py-2 ${tarea.finalizada ? 'text-ink ring-1 ring-line' : 'text-white'} ${onMover ? 'cursor-grab active:cursor-grabbing' : ''} ${esArrastrada ? 'opacity-40' : ''}`}
                                   style={{ background: colorMostrado(tarea) }}
+                                  title="Doble clic para editar"
+                                  onDoubleClick={(event) => {
+                                    if (event.target instanceof Element && event.target.closest('[data-check]')) return
+                                    onEditar?.(tarea.indice)
+                                  }}
                                   onDragStart={(event) => {
                                     if (event.target instanceof Element && event.target.closest('[data-check]')) {
                                       event.preventDefault()
@@ -296,6 +308,17 @@ export function Cronograma({
                             <li className="h-1 rounded-full bg-pine" aria-hidden />
                           ) : null}
                         </ul>
+                        {onAgregar ? (
+                          <div className="px-2 pt-2 pb-3">
+                            <button
+                              type="button"
+                              className="w-full rounded-xl border border-dashed border-line bg-paper-2/80 px-2 py-1.5 text-xs font-medium text-pine hover:border-pine"
+                              onClick={() => onAgregar(dia.fecha)}
+                            >
+                              Agregar tarea
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     )
                   })}
